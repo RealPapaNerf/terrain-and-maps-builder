@@ -1,0 +1,12 @@
+{
+  "name": "flightline-map-builder",
+  "private": true,
+  "type": "module",
+  "version": "0.1.0",
+  "description": "Build Flightline RC Sim map folders from public elevation data.",
+  "bin": { "flmap": "bin/flmap.mjs" },
+  "scripts": {
+    "test": "node test/build.test.mjs",
+    "probe": "node bin/flmap.mjs probe"
+  }
+}
