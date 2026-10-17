@@ -13,7 +13,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { SOURCE_PRESETS, findSource, normalizeSource, fetchSourceTerrain, probeSource, gridForSource } from '../lib/sources.mjs';
 import { makeProjector, metersPerDegree } from '../lib/geo.mjs';
-import { writeMap, readMap, writeIndex, fromSouthUpGrid, SURFACE_NAMES, MAX_SIDE } from '../lib/maps.mjs';
+import { writeMap, readMap, readArena, mapKind, writeIndex, fromSouthUpGrid, SURFACE_NAMES, MAX_SIDE } from '../lib/maps.mjs';
 import { classify, tally, obstaclesFromSurface } from '../lib/classify.mjs';
 import { IMAGERY_PRESETS, findImagery, fetchImagery, imagerySize } from '../lib/imagery.mjs';
 import { toUTM, formatUTM } from '../lib/utm.mjs';
@@ -352,6 +352,11 @@ async function cmdFromGrid(o) {
 /* ------------------------------------------------------------- inspect */
 function cmdInspect(o) {
   const dir = o._[1] || die('give the map folder to inspect');
+
+  // A library holds both terrain and Frag Zone arenas; inspect whichever
+  // this folder is rather than failing on a document it was not written for.
+  if (mapKind(String(dir)) === 'arena') return inspectArena(String(dir));
+
   const m = readMap(String(dir));
   const g = m.json.grid;
   say(`${m.json.name}${m.json.region ? ` — ${m.json.region}` : ''}  [${m.json.id}]`);
@@ -370,6 +375,26 @@ function cmdInspect(o) {
   else say('\n  Reads back clean.');
 }
 
+function inspectArena(dir) {
+  const a = readArena(dir);
+  const j = a.json;
+  const b = j.bounds || {};
+  say(`${j.name || j.id}  [${j.id}]`);
+  say(`  format        ${j.format}, schema ${j.schema}${j.author ? `, by ${j.author}` : ''}`);
+  say(`  kind          Frag Zone arena — axis-aligned brushes, not terrain`);
+  if (b.min && b.max) {
+    say(`  bounds        ${b.max[0] - b.min[0]} x ${b.max[2] - b.min[2]} m, ${b.min[1]} to ${b.max[1]} m tall`);
+  }
+  say(`  brushes       ${a.brushes}`);
+  say(`  spawns        ${a.spawns}`);
+  say(`  jump pads     ${(j.jumpPads || []).length}`);
+  say(`  pickups       ${(j.pickups || []).length}`);
+  say(`  waypoints     ${(j.waypoints?.nodes || []).length} nodes, ${(j.waypoints?.links || []).length} explicit links`);
+  say(`  gravity       ${j.gravity ?? -22} m/s², kill plane at y = ${j.killZ ?? -50}`);
+  if (a.problems.length) { say(`\n  ${a.problems.length} PROBLEM(S):`); for (const p of a.problems) say(`    - ${p}`); process.exitCode = 1; }
+  else say('\n  Reads back clean.');
+}
+
 /* --------------------------------------------------------------- index */
 function cmdIndex(o) {
   const dir = o._[1] || die('give the library folder');
@@ -377,9 +402,14 @@ function cmdIndex(o) {
   say(`${path.join(String(dir), 'index.json')}: ${idx.maps.length} map${idx.maps.length === 1 ? '' : 's'}`);
   let bad = 0;
   for (const m of idx.maps) {
-    say(`  ${m.id.padEnd(24)} ${(m.extentM[0] / 1000).toFixed(2)} km at ${m.cell} m, ${m.reliefM} m relief, ${(m.bytes / 1e6).toFixed(2)} MB${m.hasColor ? ', imagery' : ''}`);
+    const summary = m.kind === 'arena'
+      ? `arena, ${m.brushes} brushes, ${m.spawns} spawns, ${(m.bytes / 1e3).toFixed(0)} KB`
+      : `${(m.extentM[0] / 1000).toFixed(2)} km at ${m.cell} m, ${m.reliefM} m relief, ${(m.bytes / 1e6).toFixed(2)} MB${m.hasColor ? ', imagery' : ''}`;
+    say(`  ${m.id.padEnd(24)} ${summary}`);
     if (m.problems) { bad++; for (const p of m.problems) say(`    PROBLEM: ${p}`); }
   }
+  const arenas = idx.maps.filter((m) => m.kind === 'arena').length;
+  if (arenas) say(`\n  ${idx.maps.length - arenas} for Flightline, ${arenas} for Frag Zone.`);
   if (bad) process.exitCode = 1;
 }
 
