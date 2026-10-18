@@ -4,6 +4,7 @@
 //   flmap probe                         check every service, from this machine
 //   flmap build --center LAT,LON ...    fetch a map and write the folder
 //   flmap from-grid FILE.json ...       build from elevations you already have
+//   flmap arena FILE.json --out LIB     file a Frag Zone arena into a library
 //   flmap inspect DIR                   read a map back and check it
 //   flmap index DIR                     rebuild a library's index.json
 //
@@ -13,7 +14,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { SOURCE_PRESETS, findSource, normalizeSource, fetchSourceTerrain, probeSource, gridForSource } from '../lib/sources.mjs';
 import { makeProjector, metersPerDegree } from '../lib/geo.mjs';
-import { writeMap, readMap, readArena, mapKind, writeIndex, fromSouthUpGrid, SURFACE_NAMES, MAX_SIDE } from '../lib/maps.mjs';
+import { writeMap, readMap, readArena, writeArena, mapKind, writeIndex, fromSouthUpGrid, SURFACE_NAMES, MAX_SIDE } from '../lib/maps.mjs';
 import { classify, tally, obstaclesFromSurface } from '../lib/classify.mjs';
 import { IMAGERY_PRESETS, findImagery, fetchImagery, imagerySize } from '../lib/imagery.mjs';
 import { toUTM, formatUTM } from '../lib/utm.mjs';
@@ -79,6 +80,13 @@ const HELP = `flmap — Flightline map builder
       { cols, rows, cell, lat, lon, elev: [...] }, north-up, metres above sea
       level — which is the escape hatch for a GeoTIFF or LAZ tile you have
       converted yourself with GDAL or PDAL.
+
+  flmap arena FILE.json --out LIB [options]
+      File a Frag Zone arena into a map library. FILE.json is what the
+      arena editor's Save button hands you; it lands at LIB/<id>/map.json.
+
+      --id, --name, --region, --author, --license   override the document
+      --force           file it even though it has problems
 
   flmap inspect DIR
       Read a map back and check it against itself.
@@ -395,6 +403,39 @@ function inspectArena(dir) {
   else say('\n  Reads back clean.');
 }
 
+/* --------------------------------------------------------------- arena */
+// Frag Zone's editor exports the game's own document, one file. A library
+// stores one folder per map. This is the step between the two, and it is the
+// only place an arena enters a library, so it is also where an arena gets
+// checked — a map that cannot be played should not reach the index.
+function cmdArena(o) {
+  const file = o._[1] || die('give the arena JSON the editor saved');
+  const lib = o.out && o.out !== true ? String(o.out) : die('--out LIB: which library to file it into');
+
+  let json;
+  try {
+    json = JSON.parse(fs.readFileSync(String(file), 'utf8'));
+  } catch (e) {
+    die(`${file}: ${e.message}`);
+  }
+
+  // Metadata a library wants and the editor has no field for. Everything else
+  // about the document is left exactly as the editor wrote it.
+  for (const key of ['id', 'name', 'region', 'author', 'license']) {
+    if (o[key] && o[key] !== true) json[key] = String(o[key]);
+  }
+
+  const w = writeArena(lib, json, { force: !!o.force });
+  say(`${w.replaced ? 'Replaced' : 'Filed'} ${json.name || json.id} [${json.id}] in ${w.dir}`);
+  say(`  ${w.brushes} brushes, ${w.spawns} spawns, ${(w.bytes / 1024).toFixed(0)} KB`);
+  if (w.problems.length) {
+    say(`\n  FILED ANYWAY, with ${w.problems.length} problem(s):`);
+    for (const p of w.problems) say(`    - ${p}`);
+    process.exitCode = 1;
+  }
+  say(`\nNow rebuild the index:  flmap index ${lib}`);
+}
+
 /* --------------------------------------------------------------- index */
 function cmdIndex(o) {
   const dir = o._[1] || die('give the library folder');
@@ -421,6 +462,7 @@ try {
   else if (cmd === 'probe') await cmdProbe(o);
   else if (cmd === 'build') await cmdBuild(o);
   else if (cmd === 'from-grid') await cmdFromGrid(o);
+  else if (cmd === 'arena') cmdArena(o);
   else if (cmd === 'inspect') cmdInspect(o);
   else if (cmd === 'index') cmdIndex(o);
   else die(`unknown command "${cmd}". Try: flmap help`);

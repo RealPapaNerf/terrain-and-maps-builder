@@ -62,6 +62,29 @@ node bin/flmap.mjs inspect ../flightline-maps/cedar-city-field
 | `--obstacles FILE` | merge an obstacle array you made some other way. |
 | `--dry-run` | work it all out and print it, write nothing. |
 
+## Frag Zone arenas in the same library
+
+A library holds both kinds of map: the heightfield terrain Flightline flies,
+and the axis-aligned brush arenas Frag Zone fights in. They share storage and
+an index, not a geometry model — neither game can read the other's documents,
+so every index entry carries a `kind` and each game lists only what it
+understands.
+
+Frag Zone's arena editor saves one `.json` file. To put it in a library:
+
+```bash
+node bin/flmap.mjs arena ~/Downloads/my-arena.json --out ../maps-folder \
+  --region "An original layout" --author "you"
+node bin/flmap.mjs index ../maps-folder --name "Flightline public maps"
+```
+
+It lands at `<library>/<id>/map.json`, unchanged except for any metadata you
+passed. The arena is checked first — brush and spawn shapes, jump pads,
+duplicate waypoint ids, links pointing at waypoints that exist — against the
+same rules Frag Zone's own content loader applies, so a map that cannot be
+played is refused rather than filed and discovered in someone's browser.
+`--force` overrides that if you want the folder anyway.
+
 ## What has and has not been verified
 
 This matters more than usual, because a service URL that has moved fails in a

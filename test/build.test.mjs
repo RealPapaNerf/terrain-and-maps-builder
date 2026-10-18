@@ -161,6 +161,58 @@ console.log('\n== flmap index ==');
     'the byte counts match the folders');
 }
 
+/* ------------------------------------------- arenas in the same library */
+// The premise of a shared library is that two games' maps sit in one index
+// without either reading the other's. The way that breaks is not a crash, it
+// is a terrain entry built from an arena's missing grid, so the check is that
+// both kinds land with their own fields and their own kind.
+console.log('\n== A Frag Zone arena, filed beside the terrain ==');
+{
+  const LIB = path.join(TMP, 'library');
+  const arena = {
+    format: 'fragzone-map/1', schema: 1, id: 'test-arena', name: 'Test arena',
+    gravity: -22, killZ: -25,
+    bounds: { min: [-20, -10, -20], max: [20, 15, 20] },
+    brushes: [{ pos: [0, -0.5, 0], size: [40, 1, 40], material: 'floor' }],
+    spawns: [{ pos: [0, 0.1, 8], yaw: 0 }, { pos: [0, 0.1, -8], yaw: 180 }],
+    jumpPads: [], pickups: [],
+    waypoints: { nodes: [{ id: 'a', pos: [0, 0, 0] }, { id: 'b', pos: [4, 0, 0] }], links: [{ from: 'a', to: 'b' }] },
+  };
+  const src = path.join(TMP, 'from-the-editor.json');
+  fs.writeFileSync(src, JSON.stringify(arena, null, 2));
+
+  const txt = flmap('arena', src, '--out', LIB, '--region', 'Nowhere in particular');
+  console.log(txt.split('\n').map((l) => `    ${l}`).join('\n'));
+  ok(fs.existsSync(path.join(LIB, 'test-arena', 'map.json')), 'the arena lands at <lib>/<id>/map.json');
+
+  const back = JSON.parse(fs.readFileSync(path.join(LIB, 'test-arena', 'map.json'), 'utf8'));
+  ok(back.region === 'Nowhere in particular', '--region reaches the filed document', back.region);
+  ok(back.brushes.length === 1 && back.waypoints.links.length === 1,
+    'the document is filed as the editor wrote it, not reshaped');
+
+  flmap('index', LIB, '--name', 'Test library');
+  const idx = JSON.parse(fs.readFileSync(path.join(LIB, 'index.json'), 'utf8'));
+  ok(idx.maps.length === 3, 'the index now holds three maps', idx.maps.length);
+  const entry = idx.maps.find((m) => m.id === 'test-arena');
+  ok(entry && entry.kind === 'arena', 'the arena is listed as an arena', entry && entry.kind);
+  ok(entry && entry.brushes === 1 && entry.spawns === 2, 'with its brush and spawn counts', entry && `${entry.brushes}/${entry.spawns}`);
+  ok(entry && entry.cell === undefined && entry.reliefM === undefined,
+    'and none of terrain\'s fields, which it has no way to mean');
+  const terrain = idx.maps.filter((m) => m.kind === 'terrain');
+  ok(terrain.length === 2 && terrain.every((m) => m.cell > 0),
+    'while the terrain maps keep theirs', terrain.map((m) => m.cell).join(', '));
+
+  // A library is a published thing; a map that cannot be played should not
+  // reach it, and the failure has to be loud rather than a filed-but-broken
+  // folder that only fails in someone's browser.
+  const bad = path.join(TMP, 'broken.json');
+  fs.writeFileSync(bad, JSON.stringify({ ...arena, id: 'broken', brushes: [], spawns: [] }));
+  let threw = '';
+  try { flmap('arena', bad, '--out', LIB); } catch (e) { threw = String(e.stderr || e.message); }
+  ok(/needs at least one brush/.test(threw), 'a brushless arena is refused, with the reason');
+  ok(!fs.existsSync(path.join(LIB, 'broken')), 'and nothing is written for it');
+}
+
 /* --------------------------------------------------- the cell-size cap */
 console.log('\n== The format caps a side at 1024 posts ==');
 {
