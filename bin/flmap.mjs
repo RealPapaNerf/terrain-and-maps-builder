@@ -23,18 +23,41 @@ const say = (...a) => console.log(...a);
 const die = (m) => { console.error(`flmap: ${m}`); process.exit(1); };
 
 /* ----------------------------------------------------------- arguments */
+// Flags that may be given more than once always arrive as an array, even
+// when there is one of them, so the reader never has to ask which it got.
+const REPEATABLE = new Set(['site']);
+
 function parseArgs(argv) {
   const o = { _: [] };
+  const put = (k, v) => {
+    if (!REPEATABLE.has(k)) { o[k] = v; return; }
+    (o[k] = o[k] || []).push(v);
+  };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     if (a.startsWith('--')) {
       const eq = a.indexOf('=');
-      if (eq > 0) o[a.slice(2, eq)] = a.slice(eq + 1);
-      else if (i + 1 < argv.length && !argv[i + 1].startsWith('--')) o[a.slice(2)] = argv[++i];
-      else o[a.slice(2)] = true;
+      if (eq > 0) put(a.slice(2, eq), a.slice(eq + 1));
+      else if (i + 1 < argv.length && !argv[i + 1].startsWith('--')) put(a.slice(2), argv[++i]);
+      else put(a.slice(2), true);
     } else o._.push(a);
   }
   return o;
+}
+
+/* --site N,E,Name — somewhere else on the map you can stand. The sim treats
+   the stand point as a setting rather than a property of the map, because on
+   a 6 km map one spot is a guess; these are the builder's suggestions. */
+function parseSites(o) {
+  return (o.site || []).map((raw) => {
+    const parts = String(raw).split(',');
+    const n = Number(parts[0]), e = Number(parts[1]);
+    const name = parts.slice(2).join(',').trim();
+    if (!Number.isFinite(n) || !Number.isFinite(e) || !name) {
+      die(`--site wants N,E,Name — like "-900,400,Canyon mouth" — got "${raw}"`);
+    }
+    return { id: name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'site', name, n, e };
+  });
 }
 const num = (v, d) => (v == null || v === true ? d : Number(v));
 const pair = (v, what) => {
@@ -59,6 +82,8 @@ const HELP = `flmap — Flightline map builder
       --source ID|URL   usgs-3dep | open-meteo | an ImageServer URL
       --id, --name, --region, --author, --license
       --pilot N,E       where you stand, local metres          (default 0,0)
+      --site N,E,NAME   another place you can stand; repeatable. The sim
+                        lists these, and B stands where the aircraft is.
       --home N,E        autopilot home                         (default: pilot)
       --runway N,E,YAW,LEN,WID    a runway rectangle
       --flatten-runway  level the heightfield under the runway
@@ -331,11 +356,17 @@ async function cmdBuild(o) {
     rangeM: o.range != null ? num(o.range) : undefined,
     pilot, home, pads, classes, colorFile,
     obstacles,
+    sites: parseSites(o),
+    // `anchor` says whether a start is a place on the map or a position
+    // relative to you. Once the stand point can move, a runway must stay
+    // where it is and the thing in your hand must not.
     starts: [
-      { id: 'pad', name: 'On the pad', n: pilot.n + 8, e: pilot.e + 1.5, yawDeg: 0, aglM: 0 },
-      ...(pads.length ? [{ id: 'runway', name: 'On the runway', n: pads[0].n, e: pads[0].e - pads[0].lengthM / 2 + 8, yawDeg: pads[0].yawDeg, aglM: 0 }] : []),
-      { id: 'launch', name: 'In your hand', n: pilot.n + 0.6, e: pilot.e + 0.45, yawDeg: 0, aglM: 1.7 },
-      { id: 'air', name: 'In the air, 60 m', n: pilot.n - 200, e: pilot.e + 120, yawDeg: 270, aglM: 60, speedMs: 16 },
+      { id: 'pad', name: 'On the pad', n: pilot.n + 8, e: pilot.e + 1.5, yawDeg: 0, aglM: 0, anchor: 'pilot' },
+      ...(pads.length ? [{ id: 'runway', name: 'On the runway', n: pads[0].n, e: pads[0].e - pads[0].lengthM / 2 + 8, yawDeg: pads[0].yawDeg, aglM: 0, anchor: 'map' }] : []),
+      // `held` says the model sits in your hand until you throw it, rather
+      // than being 1.7 m up in the air with the motor already running.
+      { id: 'launch', name: 'In your hand', n: pilot.n + 0.6, e: pilot.e + 0.45, yawDeg: 0, aglM: 1.7, anchor: 'pilot', held: true },
+      { id: 'air', name: 'In the air, 60 m', n: pilot.n - 200, e: pilot.e + 120, yawDeg: 270, aglM: 60, speedMs: 16, anchor: 'pilot' },
     ],
   });
 
