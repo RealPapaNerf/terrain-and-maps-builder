@@ -95,7 +95,8 @@ way that looks like your network.
 | **USGS 3DEP elevation** — `elevation.nationalmap.gov/.../3DEPElevation/ImageServer` | **Known good.** relief exercises this against the live server; it is the source its README's 1 m Utah examples come from. |
 | **Open-Meteo elevation** — `api.open-meteo.com/v1/elevation` | **Known good**, same provenance. ~90 m, a fallback outside the US. |
 | **NOAA topo-bathy** — `gis.ngdc.noaa.gov/...` | **Known good**, same provenance. Not useful for a flying site. |
-| **USGS NAIP imagery** — `imagery.nationalmap.gov/.../USGSNAIPImagery/ImageServer` and `USGSNAIPPlus` | **NOT verified.** Written from the published USGS service names and never reached from the machine this was built on, which had no outbound access to them. `flmap probe` is the check. |
+| **USGS NAIP imagery** — `imagery.nationalmap.gov/.../USGSNAIPImagery/ImageServer` | **Verified 18 Oct 2026.** `probe` gets a JPEG, and the eight maps in the public library all carry a 2048 px drape from it. It does 504 on a large render when it is busy, so a failed `--color` is retried at half the size, down to 512 — that is a load problem, not a size limit, and the same request often works minutes later. |
+| **USGS NAIP Plus** — `.../USGSNAIPPlus/ImageServer` | **NOT verified.** Answers 504 every time it has been tried from here, at any size. Plain NAIP covers the same job at better resolution. |
 | **First-return surface (`--dsm`)** | **No default.** USGS 3DEP publishes bare earth nationally; a first-return surface is published by some states and not others, so you supply the URL. |
 
 `flmap build --color` does not fail the build if imagery cannot be fetched: it

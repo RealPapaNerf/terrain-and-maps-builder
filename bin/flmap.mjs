@@ -14,7 +14,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { SOURCE_PRESETS, findSource, normalizeSource, fetchSourceTerrain, probeSource, gridForSource } from '../lib/sources.mjs';
 import { makeProjector, metersPerDegree } from '../lib/geo.mjs';
-import { writeMap, readMap, readArena, writeArena, mapKind, writeIndex, fromSouthUpGrid, SURFACE_NAMES, MAX_SIDE } from '../lib/maps.mjs';
+import { writeMap, readMap, readArena, writeArena, mapKind, writeIndex, fromSouthUpGrid, SURFACE_NAMES, MAX_SIDE, ARENA_FORMAT } from '../lib/maps.mjs';
 import { classify, tally, obstaclesFromSurface } from '../lib/classify.mjs';
 import { IMAGERY_PRESETS, findImagery, fetchImagery, imagerySize } from '../lib/imagery.mjs';
 import { toUTM, formatUTM } from '../lib/utm.mjs';
@@ -280,17 +280,37 @@ async function cmdBuild(o) {
   if (o.color) {
     const id = o.color === true ? 'naip' : String(o.color);
     const svc = findImagery(id) || { id, label: id, url: id, attribution: '', resolutionM: 1, verified: false };
-    const px = o['color-px'] ? num(o['color-px']) : imagerySize(span, svc.resolutionM);
-    say(`\nFetching imagery: ${svc.label} at ${px} x ${px} (${(span / px).toFixed(2)} m a pixel)…`);
-    try {
-      const img = await fetchImagery(svc, bboxOf(projector, span), px);
-      fs.writeFileSync(path.join(out, img.file), img.buf);
-      colorFile = img.file;
-      say(`  wrote ${img.file}, ${(img.buf.length / 1024).toFixed(0)} KB`);
-    } catch (e) {
-      say(`  FAILED: ${e.message}`);
-      say('  Carrying on without imagery. The terrain is coloured by surface class and slope instead.');
-      say('  Run `flmap probe` to see whether the imagery service is reachable at all from here.');
+    const asked = o['color-px'] ? num(o['color-px']) : imagerySize(span, svc.resolutionM);
+    const box = bboxOf(projector, span);
+
+    // NAIP 504s on a big render under load and serves the identical request
+    // minutes later, so a failure here says nothing reliable about the size
+    // asked for — observed building Zion: 2048 px timed out, 1024 px worked,
+    // and 2048 px worked again later. Halving and asking again turns "no
+    // imagery at all" into "imagery, possibly at half the resolution", which
+    // is the better trade every time. An explicit --color-px is halved too,
+    // because the alternative is nothing; the size that actually landed is
+    // reported either way.
+    let px = asked;
+    for (;;) {
+      say(`\nFetching imagery: ${svc.label} at ${px} x ${px} (${(span / px).toFixed(2)} m a pixel)…`);
+      try {
+        const img = await fetchImagery(svc, box, px);
+        fs.writeFileSync(path.join(out, img.file), img.buf);
+        colorFile = img.file;
+        say(`  wrote ${img.file}, ${(img.buf.length / 1024).toFixed(0)} KB${px === asked ? '' : ` — at ${px} px, not the ${asked} px asked for`}`);
+        break;
+      } catch (e) {
+        say(`  FAILED: ${e.message}`);
+        if (px > 512) {
+          px = Math.floor(px / 2);
+          say(`  The service may just be refusing a render that big. Trying ${px} x ${px}…`);
+          continue;
+        }
+        say('  Carrying on without imagery. The terrain is coloured by surface class and slope instead.');
+        say('  Run `flmap probe` to see whether the imagery service is reachable at all from here.');
+        break;
+      }
     }
   }
 
@@ -417,6 +437,16 @@ function cmdArena(o) {
     json = JSON.parse(fs.readFileSync(String(file), 'utf8'));
   } catch (e) {
     die(`${file}: ${e.message}`);
+  }
+
+  // Frag Zone's own loader never required `format` — it checks the schema and
+  // the id — so maps written before the editor existed do not carry one. A
+  // library does need it, because it is how an index tells the two games'
+  // documents apart. Stamp it when the document is unmistakably an arena and
+  // simply says nothing, rather than refusing a map the game itself plays.
+  if (!json.format && Array.isArray(json.brushes) && Array.isArray(json.spawns)) {
+    json.format = ARENA_FORMAT;
+    say(`(stamped format: ${ARENA_FORMAT} — the document did not carry one)`);
   }
 
   // Metadata a library wants and the editor has no field for. Everything else
