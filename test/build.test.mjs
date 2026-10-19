@@ -9,6 +9,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { readMap, SURFACE_NAMES } from '../lib/maps.mjs';
+import { proposeSites, setPilot } from '../lib/sites.mjs';
 import { toUTM, toLatLon } from '../lib/utm.mjs';
 import { bareEarth, surfaceModel } from './stub-network.mjs';
 
@@ -223,6 +224,50 @@ console.log('\n== The format caps a side at 1024 posts ==');
   console.log(`    ${line ? line.trim() : '(no adjustment line)'}`);
   ok(!!line, '8,192 m at 2 m a cell is refused and the cell is widened instead');
   ok(/8\.0/.test(txt) || /grid\s+1024 x 1024/.test(txt), 'and the grid lands at 1024 posts a side', txt.split('\n').find((l) => l.includes('grid')).trim());
+}
+
+/* -------------------------------------------- places to stand on a map */
+// Moving the stand point is three things that must move together, and the
+// way it goes wrong is that two of them do. Each one here was an actual bug.
+console.log('\n== Moving a map\'s stand point ==');
+{
+  const before = JSON.parse(fs.readFileSync(path.join(OUT, 'map.json'), 'utf8'));
+  const pad = (before.starts || []).find((s) => s.id === 'pad');
+  const launch = (before.starts || []).find((s) => s.id === 'launch');
+  const oldPilot = before.pilot;
+
+  const prop = proposeSites(OUT, { count: 3 });
+  ok(prop.sites.length > 0, 'the heightfield yields somewhere to stand', `${prop.sites.length} of ${prop.total}`);
+  ok(prop.sites.every((s) => s.aslM >= prop.map.min - 1 && s.aslM <= prop.map.max + 1),
+    'every proposal sits inside the map\'s own elevation range',
+    prop.sites.map((s) => Math.round(s.aslM)).join(', '));
+  ok(prop.sites.every((s) => s.open >= 0 && s.open <= 16), 'openness is a count out of 16');
+
+  const target = { n: oldPilot.n + 300, e: oldPilot.e - 200 };
+  const r = setPilot(OUT, target.n, target.e);
+  const after = JSON.parse(fs.readFileSync(path.join(OUT, 'map.json'), 'utf8'));
+  const pad2 = after.starts.find((s) => s.id === 'pad');
+  const launch2 = after.starts.find((s) => s.id === 'launch');
+
+  ok(after.pilot.n === target.n && after.pilot.e === target.e, 'the pilot moved', `${after.pilot.n}, ${after.pilot.e}`);
+  // 1. the starts that belong to you come with you, or you stand on one side
+  //    of the canyon and the model appears on the other
+  near(pad2.n - pad.n, 300, 1e-6, 'the pad start moved by the same delta');
+  near(launch2.e - launch.e, -200, 1e-6, 'the hand launch moved by the same delta');
+  // 2. the field elevation is re-read, because it sets density altitude and
+  //    it was measured at a spot you have left
+  ok(after.fieldElevM !== before.fieldElevM, 'the field elevation was re-read from the ground',
+    `${before.fieldElevM} -> ${after.fieldElevM}`);
+  // 3. the datum goes with it, or the altimeter reads hundreds of feet while
+  //    the model is sitting on the ground
+  ok(after.origin.datumElevM === after.fieldElevM,
+    'the datum follows, so local zero stays at your feet',
+    `datum ${after.origin.datumElevM}, field ${after.fieldElevM}`);
+
+  ok(readMap(OUT).problems.length === 0, 'and the map still reads back clean');
+
+  // put it back, so the checks after this see the map they expect
+  setPilot(OUT, oldPilot.n, oldPilot.e);
 }
 
 /* ------------------------------------------------------------ inspect */

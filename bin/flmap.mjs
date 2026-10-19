@@ -5,6 +5,7 @@
 //   flmap build --center LAT,LON ...    fetch a map and write the folder
 //   flmap from-grid FILE.json ...       build from elevations you already have
 //   flmap arena FILE.json --out LIB     file a Frag Zone arena into a library
+//   flmap sites DIR                     propose, or set, places to stand
 //   flmap inspect DIR                   read a map back and check it
 //   flmap index DIR                     rebuild a library's index.json
 //
@@ -18,6 +19,7 @@ import { writeMap, readMap, readArena, writeArena, mapKind, writeIndex, fromSout
 import { classify, tally, obstaclesFromSurface } from '../lib/classify.mjs';
 import { IMAGERY_PRESETS, findImagery, fetchImagery, imagerySize } from '../lib/imagery.mjs';
 import { toUTM, formatUTM } from '../lib/utm.mjs';
+import { proposeSites, setSites, setPilot } from '../lib/sites.mjs';
 
 const say = (...a) => console.log(...a);
 const die = (m) => { console.error(`flmap: ${m}`); process.exit(1); };
@@ -25,7 +27,7 @@ const die = (m) => { console.error(`flmap: ${m}`); process.exit(1); };
 /* ----------------------------------------------------------- arguments */
 // Flags that may be given more than once always arrive as an array, even
 // when there is one of them, so the reader never has to ask which it got.
-const REPEATABLE = new Set(['site']);
+const REPEATABLE = new Set(['site', 'set']);
 
 function parseArgs(argv) {
   const o = { _: [] };
@@ -49,15 +51,7 @@ function parseArgs(argv) {
    the stand point as a setting rather than a property of the map, because on
    a 6 km map one spot is a guess; these are the builder's suggestions. */
 function parseSites(o) {
-  return (o.site || []).map((raw) => {
-    const parts = String(raw).split(',');
-    const n = Number(parts[0]), e = Number(parts[1]);
-    const name = parts.slice(2).join(',').trim();
-    if (!Number.isFinite(n) || !Number.isFinite(e) || !name) {
-      die(`--site wants N,E,Name — like "-900,400,Canyon mouth" — got "${raw}"`);
-    }
-    return { id: name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'site', name, n, e };
-  });
+  return o.site ? parseSiteList(o.site, '--site') : [];
 }
 const num = (v, d) => (v == null || v === true ? d : Number(v));
 const pair = (v, what) => {
@@ -112,6 +106,21 @@ const HELP = `flmap — Flightline map builder
 
       --id, --name, --region, --author, --license   override the document
       --force           file it even though it has problems
+
+  flmap sites DIR [options]
+      With no --set, read the heightfield and print places worth standing:
+      flat enough to land on, with the horizon low enough to see the model.
+      It PROPOSES — it does not know where the road is or which way the
+      good flying lies — so pick from the list and name them yourself.
+
+      --set N,E,NAME    write this site; repeatable, replaces what is there
+      --pilot N,E       move the map's DEFAULT stand point here, carrying the
+                        pilot-anchored starts and the field elevation with it
+      --clear           remove every site from the map
+      --count N         how many to propose                   (default 4)
+      --sky DEG         how high the horizon may climb        (default 12)
+      --reach M         how far to look along each direction  (default 800)
+      --apart M         keep proposals this far apart         (default 900)
 
   flmap inspect DIR
       Read a map back and check it against itself.
@@ -454,6 +463,71 @@ function inspectArena(dir) {
   else say('\n  Reads back clean.');
 }
 
+/* --------------------------------------------------------------- sites */
+function cmdSites(o) {
+  const dir = String(o._[1] || die('give the map folder'));
+  if (mapKind(dir) !== 'terrain') die('sites are a terrain-map thing; this folder holds a Frag Zone arena');
+
+  if (o.clear) {
+    setSites(dir, []);
+    say(`Cleared every site from ${dir}.`);
+    return;
+  }
+  if (o.pilot && !o.set) { /* --pilot alone is allowed */ }
+
+  if (o.pilot) {
+    const p = pair(o.pilot, '--pilot');
+    const r = setPilot(dir, p[0], p[1]);
+    say(`${dir}: stand point moved ${Math.round(Math.hypot(r.dn, r.de))} m to (${p[0]}, ${p[1]})`);
+    say(`  ${r.moved} pilot-anchored start${r.moved === 1 ? '' : 's'} moved with it`);
+    say(`  field elevation ${r.before} m -> ${r.after} m (this is what sets density altitude)`);
+    say(`  datum ${r.beforeDatum} m -> ${r.afterDatum} m, so the altimeter still reads zero at your feet`);
+    if (r.absolute) say(`  NOTE: ${r.absolute} gate(s)/obstacle(s) were placed against the old datum — check them`);
+  }
+
+  if (o.set) {
+    const sites = parseSiteList(o.set, '--set');
+    setSites(dir, sites);
+    say(`${dir}: ${sites.length} site${sites.length === 1 ? '' : 's'}`);
+    for (const s of sites) say(`  ${s.id.padEnd(22)} ${s.name}  (${s.n}, ${s.e})`);
+    say('\nThe sim lists these under Settings -> Map -> "Where you stand".');
+    return;
+  }
+
+  if (o.pilot) return;
+
+  const r = proposeSites(dir, {
+    count: num(o.count, 4), skyDeg: num(o.sky, 12),
+    reachM: num(o.reach, 800), apartM: num(o.apart, 900),
+  });
+  const j = r.map.json;
+  say(`${j.name || j.id}: ${r.total} spots flat enough to stand on, best ${r.sites.length} spread out\n`);
+  say('  N        E       elev    open  slope  relief   suggested name');
+  for (const s of r.sites) {
+    say(`  ${String(Math.round(s.n)).padStart(6)}  ${String(Math.round(s.e)).padStart(6)}  ${String(Math.round(s.aslM)).padStart(5)} m  ${String(s.open).padStart(2)}/16  ${(s.slope * 100).toFixed(1).padStart(5)}%  ${String(Math.round(s.relief)).padStart(5)} m   ${s.suggested}`);
+  }
+  if (!r.sites.length) {
+    say('  Nothing qualified. Loosen it with --sky 20 or --apart 500.');
+    return;
+  }
+  say('\n  "open" is how many of 16 directions have a horizon below the sky angle —');
+  say('  it is the number that separates a usable site from a hole. Then:\n');
+  say(`  flmap sites ${dir} \\\n${r.sites.map((s) => `    --set "${Math.round(s.n)},${Math.round(s.e)},${s.suggested}"`).join(' \\\n')}`);
+}
+
+/* Shared by --set: N,E,Name with the name allowed to contain commas. */
+function parseSiteList(raw, flag) {
+  return (Array.isArray(raw) ? raw : [raw]).map((v) => {
+    const parts = String(v).split(',');
+    const n = Number(parts[0]), e = Number(parts[1]);
+    const name = parts.slice(2).join(',').trim();
+    if (!Number.isFinite(n) || !Number.isFinite(e) || !name) {
+      die(`${flag} wants N,E,Name — like "-900,400,Canyon mouth" — got "${v}"`);
+    }
+    return { id: name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'site', name, n, e };
+  });
+}
+
 /* --------------------------------------------------------------- arena */
 // Frag Zone's editor exports the game's own document, one file. A library
 // stores one folder per map. This is the step between the two, and it is the
@@ -523,6 +597,7 @@ try {
   else if (cmd === 'probe') await cmdProbe(o);
   else if (cmd === 'build') await cmdBuild(o);
   else if (cmd === 'from-grid') await cmdFromGrid(o);
+  else if (cmd === 'sites') cmdSites(o);
   else if (cmd === 'arena') cmdArena(o);
   else if (cmd === 'inspect') cmdInspect(o);
   else if (cmd === 'index') cmdIndex(o);

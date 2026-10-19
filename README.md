@@ -62,6 +62,39 @@ node bin/flmap.mjs inspect ../flightline-maps/cedar-city-field
 | `--obstacles FILE` | merge an obstacle array you made some other way. |
 | `--dry-run` | work it all out and print it, write nothing. |
 
+## Where you stand
+
+A map is kilometres across and a build picks one spot on it to stand — the
+centre of the box, unless you pass `--pilot`. On a canyon map the centre of
+the box is a wall. The sim can move the stand point at runtime (press **B**
+to stand where the aircraft is), but a map should still open somewhere
+sensible, and it can carry a list of named alternatives.
+
+```bash
+node bin/flmap.mjs sites ../maps-folder/zion-canyon
+```
+
+reads the heightfield and prints places worth standing: flat enough to land
+on, with the horizon low enough to see the model. **It proposes, it does not
+decide** — it has no idea where the road is, whether you are allowed to stand
+there, or which way the interesting flying lies. The column that matters is
+`open`, how many of sixteen compass directions have a horizon below the sky
+angle: it is what separates a usable site from a hole. Then pick and name:
+
+```bash
+node bin/flmap.mjs sites ../maps-folder/zion-canyon \
+  --pilot "250,346" \
+  --set "-2470,-1830,Canyon mouth" --set "474,1562,East rim"
+```
+
+`--set` writes the `sites` array the sim lists under **Settings → Map → Where
+you stand**. `--pilot` moves the map's default, and takes with it the three
+things that have to move together: the pilot-anchored starts (or you stand on
+one side of the canyon and the model appears on the other), `fieldElevM`
+(which sets density altitude), and `origin.datumElevM` (or the altimeter
+reads a thousand feet while the model sits on the ground). It edits
+`map.json` in place and re-downloads nothing.
+
 ## Frag Zone arenas in the same library
 
 A library holds both kinds of map: the heightfield terrain Flightline flies,
