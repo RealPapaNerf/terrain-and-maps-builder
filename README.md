@@ -23,6 +23,34 @@ Every service this tool uses, reached from your machine, with what came back.
 Nothing else here is trustworthy until it passes — see **What has and has not
 been verified** below, which is the honest part of this README.
 
+## The graphical builder
+
+```bash
+node bin/flmap.mjs serve ../maps-folder --port 5183 --open
+```
+
+A local web app over a library folder (`web/`, served by `lib/server.mjs`,
+no dependencies). Everything below is also there, pointed and clicked:
+
+- **New from real terrain** — pick the spot on a slippy map (USGS aerial or
+  topo), drag the coverage box, build; the CLI runs underneath and its
+  progress streams into the page.
+- **Edit any map** — a hillshaded top-down view. Stand points and launch
+  starts are draggable; the **View tool** marks everything you *cannot* see
+  from a spot (red), with a horizon panorama, so a launch site gets picked
+  before it is flown. Runways flatten the ground under themselves. Terrain
+  brushes, surface painting, and obstacles — trees, forest scatter,
+  buildings, poles, wires, gates — write straight into the format.
+- **Fly it** — the server serves the library with CORS at `/library/`, so
+  Flightline's *Settings → Map → Map library* can read your edits live,
+  before anything is published.
+- **Publish** — a scoped `git add` of just the maps you picked (plus the
+  index), commit, push. Unrelated dirt in the folder is left alone.
+
+Every save re-reads the ground under the pilot and settles `fieldElevM` and
+`origin.datumElevM` onto it — the datum rule that has cost two altimeter
+bugs — and reindexes the library.
+
 ## Build a map
 
 ```bash

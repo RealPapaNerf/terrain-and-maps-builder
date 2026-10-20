@@ -6,7 +6,7 @@
   "description": "Build Flightline RC Sim map folders from public elevation data.",
   "bin": { "flmap": "bin/flmap.mjs" },
   "scripts": {
-    "test": "node test/build.test.mjs",
+    "test": "node test/build.test.mjs && node test/server.test.mjs",
     "probe": "node bin/flmap.mjs probe"
   }
 }

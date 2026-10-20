@@ -127,6 +127,13 @@ const HELP = `flmap — Flightline map builder
 
   flmap index DIR [--name NAME]
       Rebuild index.json across every map folder under DIR.
+
+  flmap serve LIB [--port N] [--open]
+      The graphical map builder: a local web app over LIB. Pick a spot on a
+      real map and build it from lidar, or edit any map in the library —
+      stand points with a line-of-sight check, runways, terrain, surface
+      classes, trees and buildings. Flightline can read the library live at
+      http://localhost:PORT/library/ (paste that into Settings -> Map).
 `;
 
 /* --------------------------------------------------------------- probe */
@@ -589,6 +596,19 @@ function cmdIndex(o) {
   if (bad) process.exitCode = 1;
 }
 
+/* --------------------------------------------------------------- serve */
+async function cmdServe(o) {
+  const lib = o._[1] ? String(o._[1]) : die('give the library folder to serve, like: flmap serve ~/code/maps-folder');
+  if (!fs.existsSync(lib)) die(`${lib} does not exist`);
+  const { startServer } = await import('../lib/server.mjs');
+  const { port } = await startServer({ libDir: lib, port: o.port != null ? num(o.port, 5183) : 5183 });
+  if (o.open) {
+    const { spawn } = await import('node:child_process');
+    spawn('xdg-open', [`http://localhost:${port}`], { stdio: 'ignore', detached: true }).unref();
+  }
+  // the server holds the process open; Ctrl+C ends it
+}
+
 /* ---------------------------------------------------------------- main */
 const o = parseArgs(process.argv.slice(2));
 const cmd = o._[0];
@@ -601,6 +621,7 @@ try {
   else if (cmd === 'arena') cmdArena(o);
   else if (cmd === 'inspect') cmdInspect(o);
   else if (cmd === 'index') cmdIndex(o);
+  else if (cmd === 'serve') await cmdServe(o);
   else die(`unknown command "${cmd}". Try: flmap help`);
 } catch (e) {
   die(e.message);

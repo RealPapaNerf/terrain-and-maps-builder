@@ -1,0 +1,162 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Map Builder</title>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<header id="topbar">
+  <button id="brand" title="Back to the library">🗺 Map Builder</button>
+  <span id="crumb"></span>
+  <span class="spacer"></span>
+  <button id="btnProbe" class="ghost" title="Reach every elevation and imagery service from this machine">Probe services</button>
+  <button id="btnPublish" class="ghost">Publish…</button>
+</header>
+
+<main>
+
+<!-- ------------------------------------------------ library home -->
+<section id="view-home">
+  <div class="homeActions">
+    <button id="btnNewReal" class="big">⛰ New map from real terrain</button>
+    <button id="btnNewBlank" class="big">✏ New blank map</button>
+    <div class="flyHint">
+      Flightline can read this library live, edits and all:
+      <code id="libUrl"></code><button id="btnCopyLib" class="mini">copy</button>
+      — paste it into the sim under <b>Settings → Map → Map library</b>.
+    </div>
+  </div>
+  <div id="cards" class="cards"></div>
+</section>
+
+<!-- ------------------------------------------------ real-terrain builder -->
+<section id="view-build" hidden>
+  <div class="buildCols">
+    <div class="buildMapCol">
+      <div id="pickMap"></div>
+      <div class="pickHint">Click where the middle of the map should be, then size the box. Scroll to zoom.</div>
+    </div>
+    <form id="buildForm" class="panelForm">
+      <h2>Build from real terrain</h2>
+      <label>Name <input name="name" placeholder="Cedar City field" required></label>
+      <label>Map id <input name="id" pattern="[a-z0-9][a-z0-9-]*" placeholder="cedar-city-field" required></label>
+      <label>Region <input name="region" placeholder="Cedar City, Utah"></label>
+      <label>Centre <input name="center" placeholder="click the map" readonly required></label>
+      <label>Size <select name="sizeM">
+        <option value="1024">1 km — park flying</option>
+        <option value="2048" selected>2 km — a flying site</option>
+        <option value="4096">4 km — a valley</option>
+        <option value="6144">6 km — big terrain</option>
+        <option value="8192">8 km — a whole canyon system</option>
+      </select></label>
+      <label>Cell <select name="cellM">
+        <option value="2">2 m — finest</option>
+        <option value="4" selected>4 m — the sweet spot</option>
+        <option value="8">8 m — big and light</option>
+      </select><span class="note" id="cellNote"></span></label>
+      <label>Elevation <select name="source">
+        <option value="usgs-3dep" selected>USGS 3DEP — 1 m lidar, United States</option>
+        <option value="open-meteo">Open-Meteo — 90 m, worldwide</option>
+      </select></label>
+      <label class="check"><input type="checkbox" name="color" checked> Drape NAIP aerial imagery</label>
+      <label class="check"><input type="checkbox" name="classify" checked> Classify surfaces (water, snow, rock — a heuristic)</label>
+      <div class="pair">
+        <label>Water below <input name="waterBelow" type="number" step="1" placeholder="m ASL, optional"></label>
+        <label>Snow above <input name="snowAbove" type="number" step="1" placeholder="m ASL, optional"></label>
+      </div>
+      <div class="formButtons">
+        <button type="submit" id="btnBuild" class="big">Build it</button>
+      </div>
+      <pre id="buildLog" hidden></pre>
+      <div id="buildDone" hidden>
+        <button id="btnOpenBuilt" class="big">Open it in the editor →</button>
+      </div>
+    </form>
+  </div>
+</section>
+
+<!-- ------------------------------------------------ blank synthetic map -->
+<section id="view-new" hidden>
+  <form id="newForm" class="panelForm narrow">
+    <h2>New blank map</h2>
+    <p class="note">Flat (or gently shaped) ground to build up yourself: sculpt terrain,
+    paint surfaces, plant forests, put up buildings. It lives in the same library
+    and Flightline flies it like any other map.</p>
+    <label>Name <input name="name" placeholder="Backyard strip" required></label>
+    <label>Map id <input name="id" pattern="[a-z0-9][a-z0-9-]*" placeholder="backyard-strip" required></label>
+    <label>Ground <select name="preset">
+      <option value="flat" selected>Flat</option>
+      <option value="hills">Rolling hills</option>
+      <option value="ridge">A ridge down the middle</option>
+      <option value="valley">A valley down the middle</option>
+    </select></label>
+    <label>Size <select name="sizeM">
+      <option value="512">512 m</option>
+      <option value="1024" selected>1 km</option>
+      <option value="2048">2 km</option>
+    </select></label>
+    <label>Base elevation <input name="baseElevM" type="number" value="1400"> m ASL</label>
+    <label>Relief <input name="amplitudeM" type="number" value="40"> m (for hills and ridges)</label>
+    <div class="formButtons"><button type="submit" class="big">Create it</button></div>
+  </form>
+</section>
+
+<!-- ------------------------------------------------ the editor -->
+<section id="view-edit" hidden>
+  <div id="edTop">
+    <span id="edName"></span>
+    <span id="edReadout" class="mono"></span>
+    <span class="spacer"></span>
+    <button id="edUndo" class="ghost" title="Undo (Ctrl+Z)">↶</button>
+    <button id="edRedo" class="ghost" title="Redo (Ctrl+Y)">↷</button>
+    <button id="edFit" class="ghost" title="Fit the whole map">Fit</button>
+    <button id="edFly" class="ghost" title="Open Flightline — it reads this library live">Fly it ▸</button>
+    <button id="edSave" class="primary">Save</button>
+  </div>
+  <div id="edBody">
+    <nav id="edTools">
+      <button data-tool="select" class="on" title="Select and move things">➤<span>Select</span></button>
+      <button data-tool="sites"  title="Stand points: where you launch and fly from">⚑<span>Stand</span></button>
+      <button data-tool="view"   title="Line of sight: what can you see from a spot?">◉<span>View</span></button>
+      <button data-tool="starts" title="Start positions offered in the sim's menu">➹<span>Starts</span></button>
+      <button data-tool="pads"   title="Runways and pads">▭<span>Runway</span></button>
+      <button data-tool="terrain" title="Sculpt the heightfield">⛰<span>Terrain</span></button>
+      <button data-tool="surface" title="Paint surface classes">🖌<span>Surface</span></button>
+      <button data-tool="objects" title="Trees, forests, buildings, poles, wires">🌲<span>Objects</span></button>
+    </nav>
+    <div id="edCanvasWrap"><canvas id="edCanvas"></canvas></div>
+    <aside id="edPanel"></aside>
+  </div>
+</section>
+
+</main>
+
+<div id="toast" hidden></div>
+
+<dialog id="dlgPublish">
+  <h2>Publish to the shared library</h2>
+  <p class="note">Commits only the maps you pick (plus the index) and pushes to GitHub Pages,
+  where Flightline and Frag Zone read the public library. Other changes in the folder are left alone.</p>
+  <div id="pubList"></div>
+  <label>Commit message<br><textarea id="pubMsg" rows="3"></textarea></label>
+  <div class="formButtons">
+    <button id="pubGo" class="primary">Commit and push</button>
+    <button id="pubCancel" class="ghost">Cancel</button>
+  </div>
+  <pre id="pubOut" hidden></pre>
+</dialog>
+
+<dialog id="dlgProbe">
+  <h2>Service check</h2>
+  <pre id="probeOut">…</pre>
+  <div class="formButtons"><button id="probeClose" class="ghost">Close</button></div>
+</dialog>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+<script type="module" src="app.js"></script>
+</body>
+</html>
