@@ -21,16 +21,20 @@
 
 <!-- ------------------------------------------------ library home -->
 <section id="view-home">
-  <div class="homeActions">
-    <button id="btnNewReal" class="big">⛰ New map from real terrain</button>
-    <button id="btnNewBlank" class="big">✏ New blank map</button>
+  <div class="homeMain">
+    <div class="homeActions">
+      <button id="btnNewReal" class="big">⛰ New map from real terrain</button>
+      <button id="btnNewBlank" class="big">✏ New blank map</button>
+    </div>
     <div class="flyHint">
       Flightline can read this library live, edits and all:
       <code id="libUrl"></code><button id="btnCopyLib" class="mini">copy</button>
       — paste it into the sim under <b>Settings → Map → Map library</b>.
     </div>
   </div>
-  <div id="cards" class="cards"></div>
+  <aside id="libSide">
+    <div id="cards" class="cards"></div>
+  </aside>
 </section>
 
 <!-- ------------------------------------------------ real-terrain builder -->
