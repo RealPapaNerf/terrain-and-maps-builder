@@ -26,6 +26,21 @@ const SKY_DEG = 12; // proposeSites' idea of "the horizon is low enough"
 
 let E = null; // the open map's whole editor state
 
+/* Save means "make it real". The sim's default library is the PUBLISHED one,
+   so a map saved to this folder and not pushed is a map the sim never sees —
+   which is how an afternoon of moved stand points stayed invisible. Save
+   therefore commits and pushes the map it just saved, and the checkbox beside
+   it is the way out for someone editing without a network or not ready to
+   publish. Remembered, because it is a habit, not a per-map decision. */
+const PUB_KEY = 'flmap.publishOnSave';
+const publishOnSave = () => localStorage.getItem(PUB_KEY) !== 'off';
+function syncSaveLabel() {
+  const box = $('#edPub'), btn = $('#edSave');
+  if (!box || !btn) return;
+  box.checked = publishOnSave();
+  btn.textContent = box.checked ? 'Save & publish' : 'Save';
+}
+
 export function editorDirty() {
   return !!(E && (E.dirty.heights || E.dirty.surface || E.dirty.meta));
 }
@@ -441,6 +456,8 @@ function bindOnce() {
   $('#edUndo').onclick = () => doUndoRedo('undo');
   $('#edRedo').onclick = () => doUndoRedo('redo');
   $('#edSave').onclick = save;
+  $('#edPub').onchange = () => { localStorage.setItem(PUB_KEY, $('#edPub').checked ? 'on' : 'off'); syncSaveLabel(); };
+  syncSaveLabel();
   $('#edFly').onclick = () => {
     navigator.clipboard?.writeText(`${location.origin}/library/`).catch(() => {});
     toast('Opening Flightline. Library URL copied — paste into Settings → Map → Map library, pick your map.');
@@ -1263,10 +1280,32 @@ async function save() {
 
     let msg = `Saved. Field elevation ${r.datum.ground} m.`;
     if (r.problems && r.problems.length) msg += ` ⚠ ${r.problems.length} problem(s): ${r.problems[0]}`;
-    toast(msg, !!(r.problems && r.problems.length));
+    const probs = !!(r.problems && r.problems.length);
+
+    /* Publish it. The add is scoped to this map's folder and the index, so
+       another session's dirty files in the same working copy are left alone. */
+    if (publishOnSave()) {
+      btn.textContent = 'Publishing…';
+      try {
+        const p = await api('/api/publish', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ ids: [E.id], message: `Edit ${E.id} in the map builder` }),
+        });
+        msg += p.pushed
+          ? ' Published — the public library updates when Pages rebuilds, a minute or two.'
+          : ` Committed but NOT pushed: ${p.error || 'push failed'}`;
+        if (!p.pushed) toast(msg, true);
+        else toast(msg, probs);
+      } catch (e) {
+        // the save stands: say which half failed, and leave the rest alone
+        toast(`${msg} Publish failed: ${e.message} — the file is saved, and the sim can read this library live.`, true);
+      }
+    } else {
+      toast(msg, probs);
+    }
   } catch (e) {
     toast(`Save failed: ${e.message}`, true);
   }
   btn.disabled = false;
-  btn.textContent = 'Save';
+  syncSaveLabel();
 }

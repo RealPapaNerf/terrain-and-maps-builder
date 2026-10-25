@@ -44,8 +44,16 @@ no dependencies). Everything below is also there, pointed and clicked:
 - **Fly it** — the server serves the library with CORS at `/library/`, so
   Flightline's *Settings → Map → Map library* can read your edits live,
   before anything is published.
-- **Publish** — a scoped `git add` of just the maps you picked (plus the
-  index), commit, push. Unrelated dirt in the folder is left alone.
+- **Save & publish** — the editor's Save commits the map it just saved and
+  pushes it, because the sim's default library is the *published* one: a map
+  saved to this folder and not pushed is a map the sim never sees, and an
+  afternoon of moved stand points stayed invisible that way. Untick **publish**
+  beside the button to save to the folder only (offline, or not ready) — the
+  sim can still read the folder live, see *Fly it* above. Remembered.
+- **Publish…** — the topbar button, for several maps at once or after saving
+  with publish off. A scoped `git add` of just the maps you picked (plus the
+  index), commit, push. Either way, unrelated dirt in the folder is left alone,
+  because sessions share a library's working copy.
 
 Every save re-reads the ground under the pilot and settles `fieldElevM` and
 `origin.datumElevM` onto it — the datum rule that has cost two altimeter
@@ -246,6 +254,21 @@ against the analytic surface the stub served. A flipped row, a transposed axis
 or a half-cell offset would all produce a map that looks plausible and is
 wrong; here they read as tens of metres of error. It currently comes out under
 1.5 m, which is the stub's own curvature between samples.
+
+Two browser checks sit outside `npm test`, because they need a browser.
+Playwright is borrowed from the one repo here that carries it:
+
+```bash
+NODE_PATH=../Frag-Zone-Discount-Warfare/node_modules node test/smoke-gui.mjs
+NODE_PATH=../Frag-Zone-Discount-Warfare/node_modules node test/smoke-publish.mjs
+```
+
+`smoke-gui` drives the home view, the editor, a viewshed and a brush stroke.
+`smoke-publish` moves a stand point and presses Save, then checks the commit
+landed on a real remote — it copies one map into a temp library with its own
+bare remote first, so it never touches the real one. That check exists because
+the failure it guards is silent: the builder saved, the sim read the published
+library, and the edit was nowhere with no error anywhere.
 
 The UTM conversion is checked by round-tripping through an independently
 derived inverse series over 5,760 points from 78°S to 82°N: worst closure
